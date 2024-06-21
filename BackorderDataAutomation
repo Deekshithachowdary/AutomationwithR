@@ -1,0 +1,561 @@
+# Load required libraries
+install.packages("lubridate")
+install.packages("tidyverse")
+install.packages("pivottabler")
+install.packages("rpivotTable")
+install.packages("magrittr")
+library("readxl")
+library("openxlsx")
+library("dplyr")
+library("lubridate")
+library("tidyr")
+library("pivottabler")
+library("rpivotTable")
+library("magrittr")
+
+# Set file paths
+bofile1 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(1).xlsx"
+bofile2 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(2).xlsx"
+bofile3 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(3).xlsx"
+bofile4 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(4).xlsx"
+bofile5 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(5).xlsx"
+bofile6 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(6).xlsx"
+bofile7 <- "C:/Users/dkilaru/Desktop/weekly report R files/BackorderTracking(7).xlsx"
+
+inputfile <- "C:/Users/dkilaru/Desktop/weekly report R files/Data for trending exp.xlsx"
+outputfile <- "C:/Users/dkilaru/Desktop/weekly report R files/Data for trending V3 exp.xlsx"
+
+
+# Load input workbook
+dataoutput <- read_xlsx(outputfile,sheet = 1)
+datainput <- read_xlsx(inputfile, sheet = 5)
+
+# Appending data
+bofile1_data <- read_xlsx(bofile1, sheet = 1)
+bofile2_data <- read_xlsx(bofile2, sheet = 1)
+bofile3_data <- read_xlsx(bofile3, sheet = 1)
+bofile4_data <- read_xlsx(bofile4, sheet = 1)
+bofile5_data <- read_xlsx(bofile5, sheet = 1)
+bofile6_data <- read_xlsx(bofile6, sheet = 1)
+bofile7_data <- read_xlsx(bofile7, sheet = 1)
+
+# Ensure all data frames have the same columns
+common_columns <- Reduce(intersect, list(colnames(datainput), colnames(bofile1_data), colnames(bofile2_data), colnames(bofile3_data)))
+datainput <- datainput[, common_columns, drop = FALSE]
+bofile1_data <- bofile1_data[, common_columns, drop = FALSE]
+bofile2_data <- bofile2_data[, common_columns, drop = FALSE]
+bofile3_data <- bofile3_data[, common_columns, drop = FALSE]
+bofile4_data <- bofile4_data[, common_columns, drop = FALSE]
+bofile5_data <- bofile5_data[, common_columns, drop = FALSE]
+bofile6_data <- bofile6_data[, common_columns, drop = FALSE]
+bofile7_data <- bofile7_data[, common_columns, drop = FALSE]
+
+datainput <- rbind(datainput, bofile1_data, bofile2_data, bofile3_data, bofile4_data, bofile5_data, bofile6_data, bofile7_data)
+
+write.xlsx(datainput, inputfile, overwrite = TRUE)
+
+# Ensure datainput is a data.frame
+datainput <- as.data.frame(datainput)
+
+# Step 1: Define empty columns
+num_rows <- nrow(datainput)
+empty_col <- rep("", num_rows)
+
+# Step 2: Insert the empty columns at the specified positions
+datainput <- cbind(
+  datainput[, 1, drop = FALSE],          # First existing column (Column A)
+  "Week-Period" = empty_col,             # New empty column after first column (new Column B)
+  datainput[, 2, drop = FALSE],          # Second existing column (Column B, now moved to Column C)
+  "Helper1" = empty_col,                 # First empty column after original second column (new Column D)
+  "Helper2" = empty_col,                 # Second empty column after original second column (new Column E)
+  datainput[, -(1:2)],                   # Retain all existing columns starting from Column C
+  "Primary Vendor" = empty_col,          # New empty column (new Column U)
+  "Primary Vendor2" = empty_col,         # New empty column (new Column V)
+  "Plant Name" = empty_col               # New empty column (new Column W)
+)
+
+
+#filter to current week data
+
+datainput$Date <- as.POSIXct(datainput$Date, format = "%m/%d/%Y %I:%M:%S %p")  # Convert Date column to POSIXct type, considering the date and time format
+dataoutput$Date <- as.POSIXct(dataoutput$Date, format = "%m/%d/%Y %I:%M:%S %p")
+
+#Define start and end dates of the week (without considering time)
+current_friday <- Sys.Date()
+previousfriday <- current_friday - wday(current_friday, week_start = 6)
+
+start_date <- as.POSIXct(current_friday, format = "%Y-%m-%d %H:%M:%S")
+end_date <- as.POSIXct(previousfriday, format = "%Y-%m-%d %H:%M:%S")
+
+
+#Filter the dataframe to include only the rows within the specified date range
+
+filtered_data <- datainput %>%
+  filter(Date >= start_date & Date <= end_date)
+
+filtered_data <- filtered_data[, colnames(datainput), drop = FALSE]  # Preserve the column order of dataoutput
+
+dataoutput <- rbind(dataoutput,filtered_data)
+
+write.xlsx(dataoutput, outputfile, overwrite = TRUE)
+
+dataoutput <- as.data.frame(dataoutput)
+
+# Update the Week-Period column in dataoutput based on the Date column
+dataoutput <- dataoutput %>%
+  mutate(`Week-Period` = paste0(year(Date), "_", week(Date)))
+
+
+# Base R method to fill down Helper1 and Helper2 columns
+fill_down <- function(column) {     #define a function to fill down missing values
+  for (i in 2:length(column)) {     #iterate through each row in column
+    if (column[i] == "") {          #if current cell empty fill it with value from previous cell
+      column[i] <- column[i - 1]    
+    }
+  }
+  return(column)
+}
+
+dataoutput$Helper1 <- fill_down(dataoutput$Helper1)
+dataoutput$Helper2 <- fill_down(dataoutput$Helper2)
+
+# Accessing newest dailybackorderfile
+dailybofiles_path <- "S:/Operations/Planning/Daily Backorder Report/Backorder Report - Daily Reports - See Here"
+
+# List only the files (not directories) within the specified path
+dailybofiles <- list.files(dailybofiles_path, full.names = TRUE, recursive = FALSE)
+
+
+if (length(dailybofiles) == 0) {
+  stop("No files found in the directory.")   # Check if the list of files is empty
+}
+
+file_info <- file.info(dailybofiles) # Get the modification time for each file
+
+if (nrow(file_info) == 0) {
+  stop("No file information could be retrieved.") # Check if any file info was retrieved
+}
+
+# Sort files based on modification time in decreasing order
+sorted_dailybofiles <- dailybofiles[order(file_info$mtime, decreasing = TRUE)]
+
+current_dailyreport <- sorted_dailybofiles[1] # Access the newest daily backorder report
+
+print(current_dailyreport) # Print the newest daily backorder report
+
+# Read the newest daily backorder file
+current_dailyreport <- read_excel(current_dailyreport, sheet = "Part_ABC_Ref")
+
+
+dataoutput$ABC_matched <- current_dailyreport$`Part ABC`[match(dataoutput$`Part Number`, current_dailyreport$`Part Number`)]  #index match
+
+dataoutput$ABC_matched <- ifelse(is.na(dataoutput$ABC_matched), "C", dataoutput$ABC_matched) #Replace NA values in the new ABC_matched column with "C"
+
+dataoutput$ABC <- ifelse(is.na(dataoutput$ABC), dataoutput$ABC_matched, dataoutput$ABC) # Combine ABC column with the new ABC_matched column
+
+dataoutput$ABC_matched <- NULL #Remove the intermediate ABC_matched column
+
+# Print the updated dataoutput
+#print(dataoutput)
+
+# index match primary vendor
+current_dailyreport <- sorted_dailybofiles[1] # Access the newest daily backorder report
+
+print(current_dailyreport) # Print the newest daily backorder report
+
+current_dailyreport <- read_excel(current_dailyreport, sheet = "WorkingSummary+_ByPart")
+
+dataoutput$`Primary Vendor` <- current_dailyreport$`Vendor Name`[match(dataoutput$`Part Number`, current_dailyreport$`Part Number`)]
+
+dataoutput$'Primary Vendor'[is.na(dataoutput$`Primary Vendor`)] <- "" #replace NA with blanks
+
+
+#filter SPINE
+dataoutput <- dataoutput[dataoutput$Division == "SPINE", ]
+
+#filter Product Family
+allowed_Productfamily <- c("Frequently Sold", "Graphic Cases", "Instruments", "Implants")
+dataoutput <- dataoutput[dataoutput$`Product Family` %in% allowed_Productfamily, ]
+
+
+#filter GIS from Project Name
+dataoutput <- dataoutput %>%
+  filter(`Project Name` != "Globus Imaging System (GIS)" & `Project Name` != "Globus Navigation system (GNS)")
+
+
+#assign plant name
+dataoutput <- dataoutput %>%
+  mutate(`Plant Name` = ifelse(
+    !grepl("\\.", `Part Number`) & !grepl("sc", `Part Number`, ignore.case = TRUE) & `Project Name` != "HARVEST",
+    "Memphis",
+    "Audubon"
+  ))
+
+#change date to normal format
+dataoutput <- dataoutput %>%
+  mutate(
+    Date = format(as.POSIXct(Date, format = "%Y-%m-%d %H:%M:%S"), "%m/%d/%Y"),
+    `Order Date` = format(as.POSIXct(`Order Date`, format = "%Y-%m-%d %H:%M:%S"), "%m/%d/%Y")
+  )
+
+
+write.xlsx(dataoutput, outputfile, overwrite = TRUE)
+
+#end of part1
+
+
+
+
+
+#copy data form v3 to sheet1
+
+dataoutput <- read_xlsx(outputfile,sheet = 1)
+dataoutput$Date <- as.POSIXct(dataoutput$Date, format = "%m/%d/%Y")
+
+data_18th <- filter(dataoutput, as.Date(Date) == as.Date("2024-05-18"))
+data_20th <- filter(dataoutput, as.Date(Date) == as.Date("2024-05-24"))
+merged_data <- rbind(data_18th, data_20th)
+
+merged_data <- merged_data %>%
+  mutate(Date = as.Date(Date))
+
+
+#create anew excel wb
+filepath <- "C:/Users/dkilaru/Desktop/weekly report R files/5-18-24_5-20-24-BOUpdate.xlsx"  #define path
+
+wb <- createWorkbook()
+
+addWorksheet(wb, "Summary - Audubon")
+addWorksheet(wb, "Summary - Memphis")
+addWorksheet(wb, "Net BO")
+addWorksheet(wb, "Pivot")#name sheets
+
+if ("Sheet1" %in% names(wb$worksheets)) {
+  warning("Sheet1 already exists.")
+} else {
+  addWorksheet(wb, "Sheet1")
+}
+
+writeData(wb, "Sheet1", merged_data)
+saveWorkbook(wb, filepath, overwrite = TRUE) # save wb with path and name
+cat("Excel file 5-18-24_5-20-24-BOUpdate.xlsx created successfully at" , filepath) #copy data to newwb sheet1
+
+
+# Pivot table
+
+data_path <- filepath
+pivot_data <- read_excel(data_path,sheet = "Sheet1")
+pivot_table <- pivot_data %>%
+  group_by(`Part Number`, `Part Number description`, `Project Name`, ABC, `Plant Name`, Date) %>%
+  summarise(`Item Quantity` = sum(`Item Quantity`, na.rm = TRUE)) %>%
+  spread(Date, `Item Quantity`)
+
+#pivot_table <- pivot_data %>%
+  #group_by(`Part Number`, `Part Number description`, `Project Name`, ABC, `Plant Name`) %>%
+  #summarise(`Item Quantity` = sum(`2024-05-18`, na.rm = TRUE) + sum(`2024-05-20`, na.rm = TRUE)) %>%
+  #pivot_wider(names_from = `Part Number`, values_from = `Item Quantity`)
+
+pivot_table$`Grand Total` <- rowSums(pivot_table[, 6:7], na.rm = TRUE)
+
+wb <- loadWorkbook(data_path)
+writeData(wb, sheet = "Pivot", pivot_table)
+saveWorkbook(wb, data_path ,overwrite = TRUE)
+print(pivot_table)
+
+
+
+#copy pivot table into Net BO tab
+#add columns
+pivot_table[, c("Net BO", "Net US BO","Added","Removed","A-Added","A-Removed","B-Added","B-Removed","C-Added","C-Removed")] <- NA
+writeData(wb, sheet = "Net BO", pivot_table)
+saveWorkbook(wb,data_path, overwrite = TRUE)
+print(pivot_table)
+
+
+#access latest BO file
+
+current_dailyreport <- sorted_dailybofiles[1] # Access the newest daily back order report
+print(current_dailyreport) # Print the newest daily back order report
+
+
+#index match for Net BO
+current_dailyreport <- read_excel(current_dailyreport, sheet = "Net_BO")
+existing_data <- read_excel(data_path, sheet = "Net BO")
+
+
+existing_data$"Net BO" <- current_dailyreport$"Net BO Qty (All BO Types)"[match(existing_data$"Part Number", current_dailyreport$"Part Number")]
+wb <- loadWorkbook(data_path)
+writeData(wb, sheet = "Net BO", existing_data)
+saveWorkbook(wb, data_path, overwrite = TRUE)
+print(existing_data)  
+
+
+#index match for Net US BO
+current_dailyreport <- sorted_dailybofiles[1] # Access the newest daily back order report
+print(current_dailyreport)
+
+current_dailyreport <- read_excel(current_dailyreport, sheet = "Net_BO")
+existing_data <- read_excel(data_path, sheet = "Net BO")
+
+existing_data$"Net US BO" <- current_dailyreport$"Net BO - US - Built Set Qty"[match(existing_data$"Part Number", current_dailyreport$"Part Number")]
+writeData(wb, sheet = "Net BO", existing_data)
+
+#existing_data[is.na(existing_data)] <- 0
+
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+
+print(existing_data)
+
+
+
+
+
+data_path <- filepath
+
+wb <- loadWorkbook(data_path)
+
+# Read the data to calculate the number of rows
+data <- read.xlsx(data_path, sheet = "Net BO")
+
+data[data == "" | is.na(data)] <- 0
+
+num_rows <- nrow(data)
+
+# Function to write formulas in a specific column
+write_formulas <- function(wb, sheet, formula_template, start_col, num_rows) {
+  writeFormula(wb, sheet = sheet, x = sprintf(formula_template, 2, 2), startCol = start_col, startRow = 2)
+  for (row in 2:(num_rows + 1)) {
+    formula <- sprintf(formula_template, row, row)
+    writeFormula(wb, sheet = sheet, x = formula, startCol = start_col, startRow = row)
+  }
+}
+
+# Formulas
+formulas <- list(
+  list(template = "IF(OR(ISBLANK(F%d),E%d=0),1,0)", start_col = 11), # "K"
+  list(template = "IF(OR(ISBLANK(G%d),G%d=0),1,0)", start_col = 12), # "L"
+  list(template = "IF(AND(D%d=\"A\",J%d=1),1,0)", start_col = 13),  # "M"
+  list(template = "IF(AND(D%d=\"A\",L%d=1),1,0)", start_col = 14),  # "N"
+  list(template = "IF(AND(D%d=\"B\",K%d=1),1,0)", start_col = 15),  # "O"
+  list(template = "IF(AND(D%d=\"B\",L%d=1),1,0)", start_col = 16),  # "P"
+  list(template = "IF(AND(D%d=\"C\",K%d=1),1,0)", start_col = 17),  # "Q"
+  list(template = "IF(AND(D%d=\"C\",L%d=1),1,0)", start_col = 18)   # "R"
+)
+
+# Write all formulas
+for (formula_info in formulas) {
+  write_formulas(wb, "Net BO", formula_info$template, formula_info$start_col, num_rows)
+}
+
+data[data == "" | is.na(data)] <- 0
+
+# Save the updated workbook
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+#create pivot tables in summary_audubon
+
+#data_path <- filepath
+
+sheet_name <- "Net BO"
+
+data <- read_excel(filepath,sheet = "Net BO")
+
+print(data)
+
+filtered_audubon <- data %>% filter(`Plant Name` == "Audubon")
+
+
+# pivot table 1
+pivot_data <- filtered_audubon %>%
+  summarise(
+    Added = sum(Added, na.rm = TRUE),
+    Removed = sum(Removed, na.rm = TRUE),
+    `A-Added` = sum(`A-Added`, na.rm = TRUE),
+    `A-Removed` = sum(`A-Removed`, na.rm = TRUE),
+    `B-Added` = sum(`B-Added`, na.rm = TRUE),
+    `B-Removed` = sum(`B-Removed`, na.rm = TRUE),
+    `C-Added` = sum(`C-Added`, na.rm = TRUE),
+    `C-Removed` = sum(`C-Removed`, na.rm = TRUE)
+  )
+
+summary_table <- data.frame(
+  Category = c("Added", "Removed", "A-Added", "A-Removed", "B-Added", "B-Removed", "C-Added", "C-Removed"),
+  Sum = as.numeric(unlist(pivot_data))
+)
+wb <- loadWorkbook(filepath)
+
+#Write the summary table to the "Summary - Audubon" sheet
+sheet_name <- "Summary - Audubon"
+
+writeData(wb, sheet_name, summary_table, startCol = 1, startRow = 1, withFilter = FALSE)
+
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+#pivot table 2 sum of added
+filtered_audubon <- filtered_audubon %>% mutate(Added = as.numeric(Added))
+
+summary_audubon <- filtered_audubon %>%
+  group_by(`ABC`,`Project Name`, `Part Number`, `Part Number description`) %>%
+  summarise(SumofAdded = sum(Added, na.rm = TRUE))
+
+wb <- loadWorkbook(filepath)
+
+sheet_name <- "Summary - Audubon"
+
+writeData(wb, sheet_name, summary_audubon, startCol = 6, startRow = 1, withFilter = FALSE)
+
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+
+#pivottable 3
+filtered_audubon <- filtered_audubon %>% mutate(Removed = as.numeric(Removed))
+summary_removed <- filtered_audubon %>%
+  group_by(`ABC`,`Project Name`, `Part Number`, `Part Number description`) %>%
+  summarise(SumofRemoved = sum(Removed, na.rm = TRUE))
+
+wb <- loadWorkbook(filepath)
+
+sheet_name <- "Summary - Audubon"
+
+writeData(wb, sheet_name, summary_removed, startCol = 14, startRow = 1, withFilter = FALSE)
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+#Pivot tables for Summary-Memphis
+
+#data_path <- filepath
+
+data <- read_excel(data_path,sheet = "Net BO")
+
+filtered_memphis <- data %>% filter(`Plant Name` == "Memphis")
+
+cat("Structure of filtered_memphis:\n")
+print(str(filtered_memphis))
+
+# Print the first few rows of the filtered data to ensure it's correct
+cat("First few rows of filtered_memphis:\n")
+print(head(filtered_memphis))
+
+
+#pivot Table 1
+
+pivot_datamemphis <- filtered_memphis %>%
+  summarise(
+    Added = sum(`Added`, na.rm = TRUE),
+    Removed = sum(`Removed`, na.rm = TRUE),
+    `A-Added` = sum(`A-Added`, na.rm = TRUE),
+    `A-Removed` = sum(`A-Removed`, na.rm = TRUE),
+    `B-Added` = sum(`B-Added`, na.rm = TRUE),
+    `B-Removed` = sum(`B-Removed`, na.rm = TRUE),
+    `C-Added` = sum(`C-Added`, na.rm = TRUE),
+    `C-Removed` = sum(`C-Removed`, na.rm = TRUE)
+  )
+
+summary_tablememphis <- data.frame(
+  Category = c("Added", "Removed", "A-Added", "A-Removed", "B-Added", "B-Removed", "C-Added", "C-Removed"),
+  Sum = as.numeric(pivot_datamemphis)
+)
+wb <- loadWorkbook(filepath)
+
+sheet_name <- "Summary - Memphis"
+
+writeData(wb, sheet_name, summary_tablememphis, startCol = 1, startRow = 1, withFilter = FALSE)
+
+
+#pivot table 2
+
+filtered_memphis <- filtered_memphis %>% mutate(Added = as.numeric(Added))
+
+summary_memphis <- filtered_memphis %>%
+  group_by(`ABC`,`Project Name`, `Part Number`, `Part Number description`) %>%
+  summarise(SumofAdded = sum(Added, na.rm = TRUE))
+
+#wb <- loadWorkbook(filepath)
+
+sheet_name <- "Summary - Memphis"
+
+writeData(wb, sheet_name, summary_memphis, startCol = 6, startRow = 1, withFilter = FALSE)
+
+#pivot table 3
+
+filtered_memphis <- filtered_memphis %>% mutate(Removed = as.numeric(Removed))
+
+summary_removedmemphis <- filtered_memphis %>%
+ 
+  group_by(`ABC`,`Project Name`, `Part Number`, `Part Number description`) %>%
+  summarise(SumofRemoved = sum(Removed, na.rm = TRUE))
+
+#wb <- loadWorkbook(filepath)
+
+sheet_name <- "Summary - Memphis"
+
+writeData(wb, sheet_name, summary_removedmemphis, startCol = 14, startRow = 1, withFilter = FALSE)
+
+saveWorkbook(wb, data_path, overwrite = TRUE)
+
+
+#end of part 2
+
+
+
+#part 3
+
+
+perfectorderfilepath <- "C:/Users/dkilaru/Desktop/weekly report R files/perfectorderexp.xlsx"
+
+perfectorder <- read_excel(perfectorderfilepath, sheet = 1)
+
+#weekday_to_numeric <- function(date) {
+  #weekdays_num <- c("Sunday" = 1, "Monday" = 2, "Tuesday" = 3, "Wednesday" = 4, "Thursday" = 5, "Friday" = 6, "Saturday" = 7)
+  #weekdays_num[weekdays(date)]}
+
+
+perfectorder <- perfectorder %>%
+  mutate(weekday = as.numeric(wday(`DO Enter Date`)),
+         Hour = as.numeric(hour(`Order Date Time`)),
+         RelativeDate = as.numeric(`Order Ship Date` - `Order Date`),
+         backorder_sum = sapply(`Delivered Order ID`, function(x) sum(`Backorder Quantity`[`Delivered Order ID` == x])))
+
+perfectorder <- perfectorder %>%
+  mutate(
+    `Order Date` = format(`Order Date`, "%m/%d/%y"),
+    `Order Date Time`= format(`Order Date Time`,"%m/%d/%Y"),
+    `DO Enter Date`= format(`DO Enter Date`,"%m/%d/%Y"),
+    `Order Ship Date`= format(`Order Ship Date`, "%m/%d/%y" ))
+
+perfectorder <- perfectorder %>%
+  mutate(`Backorder Quantity`= ifelse(`Plant Name` == "Audubon" & `RelativeDate` == 1 & Hour >= 18, 0,`Backorder Quantity`),
+         `Line Level Fill` = ifelse(`Plant Name` == "Audubon"  & `RelativeDate` == 1 & Hour >= 18, 1, `Line Level Fill`),
+         `Line Level Miss` = ifelse(`Plant Name` == "Audubon"  & `RelativeDate` == 1 & Hour >= 18, 0, `Line Level Miss`),
+         `Backorder Quantity` = ifelse(`Plant Name` == "Memphis" & `RelativeDate` == 1 & Hour >= 21, 0, `Backorder Quantity`),
+         `Line Level Fill` = ifelse(`Plant Name` == "Memphis" & `RelativeDate` == 1 & Hour >= 21, 1, `Line Level Fill`),
+         `Line Level Miss` = ifelse(`Plant Name` == "Memphis" & `RelativeDate` == 1 & Hour >= 21 , 0 , `Line Level Miss`),
+         `Backorder Quantity` = ifelse(weekday %in% c(1, 7) & `RelativeDate` %in% c(1, 2), 0, `Backorder Quantity`),
+         `Line Level Miss` = ifelse(weekday %in% c(1,7) & `RelativeDate` %in% c(1,2), 1, `Line Level Fill`),
+         `Line Level Miss` = ifelse(weekday %in% c(1,7) & `RelativeDate` %in% c(1,2), 0, `Line Level Miss`))
+
+
+perfectorder <- perfectorder %>%
+  mutate(`Distinct DO (For SUM)`= ifelse(backorder_sum == 0,1, `Distinct DO (For SUM)`),
+         `DO Miss` = ifelse(backorder_sum == 0, 1, `DO Miss`),
+         `DO Full Fill` = ifelse(backorder_sum == 0, 1, `DO Full Fill`))
+
+
+
+write.xlsx(perfectorder, perfectorderfilepath, overwrite = TRUE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
